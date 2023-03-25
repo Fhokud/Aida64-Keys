@@ -15,7 +15,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ windows-latest, ubuntu-latest]
+        os: [ windows-latest, ubuntu-latest ]
 
     steps:
     - uses: actions/checkout@v3
@@ -24,7 +24,6 @@ jobs:
     - name: Run tests
       run: cargo test --workspace --exclude aida64-keys-gui --verbose
     - name: Donwload Artifacts
-    
     - uses: actions/download-artifact@v3
       with:
           name: Apps
