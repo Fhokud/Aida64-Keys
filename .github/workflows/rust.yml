@@ -1,37 +1,66 @@
-name: Windows/Ubuntu
-
 on:
   workflow_dispatch:
-  push:
-    branches: [ "master" ]
-    paths: [ "**.rs", "**.toml" ]
+  release:
+    types: [published]
 
-env:
-  CARGO_TERM_COLOR: always
+name: build-and-release
 
 jobs:
-  build:
+  build-and-release:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # x86_64-windows-gnu
+          - arch-name: x86_64-windows-gnu
+            os: ubuntu-latest
+            target: x86_64-pc-windows-gnu
+            cross: true
+            file-ext: .exe
 
     runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ windows-latest, ubuntu-latest ]
 
     steps:
-    - uses: actions/checkout@v3
-    - name: Build
-      run: cargo build --workspace --exclude aida64-keys-gui --verbose
-    - name: Run tests
-      run: cargo test --workspace --exclude aida64-keys-gui --verbose
- 
-  upload:
-    name: Upload Release
-    if: github.event.inputs.upload != 'y'
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-    - name: Donwload Artifacts
-      uses: actions/download-artifact@v3
-      with:
-        name: APKs
-        path: artifacts
+      - name: Checkout repository
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+
+      - name: Get the latest tag
+        id: tag
+        uses: "WyriHaximus/github-action-get-previous-tag@v1"
+
+      - name: Install toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
+          override: true
+
+      - name: Build client
+        uses: actions-rs/cargo@v1
+        with:
+          use-cross: ${{ matrix.cross }}
+          command: build
+          args: --release --target ${{ matrix.target }}
+
+      - name: Move binaries
+        run: |
+          mkdir artifacts/
+          mv target/${{ matrix.target }}/release/tuic-server${{ matrix.file-ext }} artifacts/tuic-server-${{ steps.tag.outputs.tag }}-${{ matrix.arch-name }}${{ matrix.file-ext }}
+          mv target/${{ matrix.target }}/release/tuic-client${{ matrix.file-ext }} artifacts/tuic-client-${{ steps.tag.outputs.tag }}-${{ matrix.arch-name }}${{ matrix.file-ext }}
+
+      - name: Calculate SHA256
+        run: |
+          cd artifacts/
+          openssl dgst -sha3-512 -r tuic-server-${{ steps.tag.outputs.tag }}-${{ matrix.arch-name }}${{ matrix.file-ext }} > tuic-server-${{ steps.tag.outputs.tag }}-${{ matrix.arch-name }}${{ matrix.file-ext }}.sha256sum
+          openssl dgst -sha3-512 -r tuic-client-${{ steps.tag.outputs.tag }}-${{ matrix.arch-name }}${{ matrix.file-ext }} > tuic-client-${{ steps.tag.outputs.tag }}-${{ matrix.arch-name }}${{ matrix.file-ext }}.sha256sum
+
+      - name: Release binaries
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: "artifacts/*"
+          tag: ${{ steps.tag.outputs.tag }}
+          name: ${{ steps.tag.outputs.tag }}
+          allowUpdates: true
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
